@@ -1,0 +1,38 @@
+.env
+.dart_tool
+.metadata
+.idea
+__pycache__
+venv
+
+.dart_tool
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.pub-cache/
+frontend/build/
+frontend/.idea/
+frontend/.vscode/
+frontend/pubspec.lock
+
+# MacOS specific
+frontend/.DS_Store
+
+# Android specific (if using Android module)
+frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/.idea/
+frontend/android/.cxx/
+
+# iOS specific (if using iOS)
+frontend/ios/Pods/
+frontend/ios/.generated/
+frontend/ios/.idea/
+frontend/ios/Flutter/Generated.xcconfig
+frontend/ios/Flutter/ephemeral/
+
+# Generated files
+frontend/generated_plugin_registrant.dart
+
+# VSCode global (optional)
+.vscode/
