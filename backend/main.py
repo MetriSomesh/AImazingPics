@@ -46,6 +46,8 @@ from fastapi import FastAPI
 from db import init_db
 from routes.user_routes import router as user_router
 from routes.auth_routes import router as auth_router
+from routes.ai_routes import router as ai_routes
+from routes.s3_bucket_routes import router as s3_bucket_routes
 
 app = FastAPI()
 
@@ -55,3 +57,5 @@ async def start_db():
 
 app.include_router(user_router)
 app.include_router(auth_router)
+app.include_router(ai_routes)
+app.include_router(s3_bucket_routes)
