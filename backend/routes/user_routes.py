@@ -7,7 +7,10 @@ router = APIRouter(prefix="/users", tags=["Users"])
 @router.post("/create")
 async def create_user(user: User):
     await user.insert()
-    return user
+
+    user_id = str(user.id)
+    phone_number = str(user.mobile)
+    return{"user_id":user_id,"phone_number":phone_number}
 
 
 

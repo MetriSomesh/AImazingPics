@@ -1,48 +1,5 @@
-# from fastapi import FastAPI
-# from pydantic import BaseModel
-# from typing import List
-
-
-# app = FastAPI()
-
-# class Student(BaseModel):
-#     id:int
-#     name:str
-#     origin:str
-
-
-# records:List[Student] =[]
-
-# @app.get('/')
-# def read_root():
-#     return {"Message":"Welcome to Students Records"}
-
-# @app.get('/records')
-# def get_records():
-#     return records
-
-# @app.post('/add')
-# def add_record(record:Student):
-#     records.append(record)
-#     return record
-
-# @app.put('/records/{stud_id}')
-# def update_record(stud_id:int, updated_record:Student):
-#     for index, record in enumerate(records):
-#         if record.id==stud_id:
-#             records[index]  =updated_record
-#             return updated_record
-#     return {"error":"Record not found"}
-
-# @app.delete('/records/{stud_id}')
-# def delete_record(stud_id:int):
-#     for index, record in enumerate(records):
-#         if record.id == stud_id:
-#            deleted =  records.pop(index)
-#            return deleted
-#     return {"error":"Record not found"}
-
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware # Import CORSMiddleware
 from db import init_db
 from routes.user_routes import router as user_router
 from routes.auth_routes import router as auth_router
@@ -50,6 +7,22 @@ from routes.ai_routes import router as ai_routes
 from routes.s3_bucket_routes import router as s3_bucket_routes
 
 app = FastAPI()
+
+origins = [
+    "http://localhost",
+    "http://localhost:8080",  
+    "http://127.0.0.1:8000",  
+    "http://10.0.2.2:8000",  
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], 
+    allow_headers=["*"], 
+)
+
+
 
 @app.on_event("startup")
 async def start_db():
