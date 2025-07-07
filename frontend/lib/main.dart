@@ -1,23 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'screens/camera_screen.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // Import flutter_dotenv
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 
 void main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
 
-  
-  try {
     await dotenv.load(fileName: ".env");
-    print(".env file loaded successfully!");
-  } catch (e) {
-    print("Error loading .env file: $e");
-   
-  }
-
-
+    //print(".env file loaded successfully!")
   runApp(const MyApp());
 }
 

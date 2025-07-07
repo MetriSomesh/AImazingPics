@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
@@ -7,37 +8,43 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:frontend/screens/output_screen.dart';
 
-
-
+// Screen for verifying OTP sent to user's mobile number
 class OTPVerificationScreen extends StatefulWidget {
-  final String mobileNumber;
-  final String publicInputUrl;
-  final String userId;
+  final String mobileNumber; // User's phone number
+  final String publicInputUrl; // URL of the image to process
+  final String userId; // Unique ID for the user
 
-  const OTPVerificationScreen({Key? key, required this.mobileNumber, required this.publicInputUrl, required this.userId})
-      : super(key: key);
+  const OTPVerificationScreen({
+    Key? key,
+    required this.mobileNumber,
+    required this.publicInputUrl,
+    required this.userId
+  }) : super(key: key);
 
   @override
   _OTPVerificationScreenState createState() => _OTPVerificationScreenState();
 }
 
 class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
+  // Base URL from environment variables
   final String _baseUrl = dotenv.env['BASE_URL']!;
+
+  // Controller and focus node for OTP input field
   final TextEditingController _otpController = TextEditingController();
   final FocusNode _otpFocusNode = FocusNode();
 
-  bool _isVerifying = false;
-  bool _isVerified = false;
-  bool _isGeneratingImages = false;
-  int _resendTimer = 120;
-  Timer? _timer;
+  // State variables
+  bool _isVerifying = false; // True when verifying OTP
+  bool _isVerified = false; // True when OTP is successfully verified
+  int _resendTimer = 120; // Countdown timer for resend OTP (2 minutes)
+  Timer? _timer; // Timer object for the countdown
 
   @override
   void initState() {
     super.initState();
-    _startResendTimer();
+    _startResendTimer(); // Start the countdown timer immediately
 
-
+    // Set focus to OTP field after the screen builds
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_otpFocusNode);
     });
@@ -45,126 +52,31 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
   @override
   void dispose() {
-    _timer?.cancel();
-    _otpController.dispose();
-    _otpFocusNode.dispose();
+    // Clean up resources when screen is disposed
+    _timer?.cancel(); // Stop the timer
+    _otpController.dispose(); // Dispose the controller
+    _otpFocusNode.dispose(); // Dispose the focus node
     super.dispose();
   }
 
+  // Starts a 2-minute countdown timer for OTP resend
   void _startResendTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_resendTimer > 0) {
         if (mounted) {
-          setState(() => _resendTimer--);
+          setState(() => _resendTimer--); // Decrement timer each second
         }
       } else {
-        timer.cancel();
+        timer.cancel(); // Stop timer when it reaches 0
       }
     });
   }
 
-  Future<void> _generateImages(String imageUrl, List<String> prompts) async {
-    if (_isGeneratingImages) return;
-
-    setState(() {
-      _isGeneratingImages = true;
-    });
-
-    try {
-     
-      String promptsString = prompts.join(',');
-
-      
-      Map<String, String> body = {
-        'prompts': promptsString,
-        'image_url': imageUrl,
-      };
-
-      final response = await http.post(
-        Uri.parse('$_baseUrl/ai/generate-multiple-images'),
-        headers: {
-          'accept': 'application/json',
-          'Content-Type': 'application/x-www-form-urlencoded', 
-        },
-        body: body, 
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _isGeneratingImages = false;
-      });
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Images generated successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-
-        if (responseData.containsKey('generated_images') && responseData['generated_images'] is List) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ImageSelectionScreen(
-               
-                generatedImages: List<Map<String, dynamic>>.from(responseData['generated_images']),
-                userId: widget.userId,
-                
-              ),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('API response missing "generated_images" or malformed.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } else {
-        String errorMessage = 'Failed to generate images. Status: ${response.statusCode}';
-        try {
-          Map<String, dynamic> errorData = json.decode(response.body);
-          if (errorData.containsKey('detail')) {
-            errorMessage = errorData['detail'];
-          }
-        } catch (_) {
-        
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error generating images: $errorMessage'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } on SocketException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isGeneratingImages = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Network error during image generation: ${e.message}'), backgroundColor: Colors.red),
-      );
-      print('Network error during image generation: $e');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isGeneratingImages = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('An unexpected error occurred during image generation: $e'), backgroundColor: Colors.red),
-      );
-      print('General error during image generation: $e');
-    }
-  }
-
+  // Verifies the OTP entered by user
   Future<void> _verifyOTP() async {
     final otp = _otpController.text;
 
+    // Basic validation - must be 6 digits
     if (otp.length != 6) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -176,11 +88,11 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
     }
 
     if (mounted) {
-      setState(() => _isVerifying = true);
+      setState(() => _isVerifying = true); // Show verifying state
     }
 
-
     try {
+      // Call OTP verification API
       final response = await http.post(
         Uri.parse('$_baseUrl/auth/verify-otp'),
         headers: {'Content-Type': 'application/json'},
@@ -189,57 +101,74 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
           "otp": int.parse(_otpController.text)
         }),
       );
+
       if (mounted) {
-        setState(() => _isVerifying = false);
+        setState(() => _isVerifying = false); // Hide verifying state
       }
+
       if (response.statusCode == 200) {
-          ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('OTP verified successfully please wait'),
+        // OTP verification successful
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('OTP verified successfully! Redirecting to image generation...'),
             backgroundColor: Colors.green,
           ),
         );
+
         if (mounted) {
           setState(() {
-            _isVerified = true;
+            _isVerified = true; // Update verified state
           });
         }
-        List<String> imagePrompts = [
-          "convert given image to a man playing archery, in a front shot He is dressed like robin hood in 1600 ad face should be visible and concentrating on the target",
-          "convert given image to a man playing bowling in mid stride about to release the ball Face should be visible and happy",
-          "convert given image to a man playing a cover drive in a test match Camera should be in front Face should have a look of determination"
-        ];
-        _generateImages(widget.publicInputUrl, imagePrompts);
+
+        // Navigate to ImageSelectionScreen after successful OTP verification
+        // Pass publicInputUrl and userId, ImageSelectionScreen will call the generate API
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ImageSelectionScreen(
+              publicInputUrl: widget.publicInputUrl,
+              userId: widget.userId,
+            ),
+          ),
+        );
       } else {
+        // OTP verification failed
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Response is ${response.body}'),
+            content: Text('OTP verification failed: ${response.body}'),
             backgroundColor: Colors.red,
           ),
         );
       }
     } catch (e) {
+      // Handle verification errors
+      if (mounted) {
+        setState(() => _isVerifying = false);
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error occurred ${e}'),
+          content: Text('Error occurred during OTP verification: $e'),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
 
+  // Resends OTP to user's mobile number
   void _resendOTP() {
     if (mounted) {
       setState(() {
-        _resendTimer = 120;
-        _otpController.clear();
-        _isVerified = false;
+        _resendTimer = 120; // Reset timer to 2 minutes
+        _otpController.clear(); // Clear OTP field
+        _isVerified = false; // Reset verified state
       });
     }
 
-    _startResendTimer();
-    FocusScope.of(context).requestFocus(_otpFocusNode);
+    _startResendTimer(); // Restart countdown
+    FocusScope.of(context).requestFocus(_otpFocusNode); // Refocus OTP field
 
+    // Show resend confirmation
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('New OTP sent to ${widget.mobileNumber}'),
@@ -271,7 +200,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Title
+                      // Screen title
                       const Text(
                         'Verify OTP',
                         style: TextStyle(
@@ -283,7 +212,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
                       const SizedBox(height: 15),
 
-
+                      // Instruction text
                       const Text(
                         'Enter the 6-digit code sent to',
                         style: TextStyle(
@@ -294,7 +223,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
                       const SizedBox(height: 8),
 
-
+                      // Display user's mobile number
                       Text(
                         '+91 ${widget.mobileNumber}',
                         style: const TextStyle(
@@ -306,7 +235,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
                       const SizedBox(height: 100),
 
-
+                      // OTP input field
                       Center(
                         child: Container(
                           width: MediaQuery.of(context).size.width * 0.8,
@@ -345,17 +274,15 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                               ),
                             ),
                             inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
+                              FilteringTextInputFormatter.digitsOnly, // Only allow numbers
                             ],
-
-
                           ),
                         ),
                       ),
 
                       const SizedBox(height: 30),
 
-
+                      // Resend OTP section
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -367,6 +294,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                             ),
                           ),
                           if (_resendTimer > 0)
+                          // Show countdown if timer is active
                             Text(
                               'Resend in $_resendTimer',
                               style: const TextStyle(
@@ -376,6 +304,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                               ),
                             )
                           else
+                          // Show resend button when timer expires
                             TextButton(
                               onPressed: _resendTimer == 0 ? _resendOTP : null,
                               child: const Text(
@@ -396,44 +325,46 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                 ),
               ),
 
-
+              // Verify OTP button
               Padding(
                 padding: const EdgeInsets.only(bottom: 10.0),
                 child: SizedBox(
                   width: double.infinity,
                   height: 55,
                   child: ElevatedButton(
-                    onPressed: (_isVerifying || _isGeneratingImages || _isVerified) ? null : _verifyOTP,
+                    onPressed: (_isVerifying || _isVerified)
+                        ? null // Disable if already processing or verified
+                        : _verifyOTP,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _isVerified ? Colors.green : Colors.blue,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(28), // More rounded corners
+                        borderRadius: BorderRadius.circular(28),
                       ),
                     ),
-                    child: (_isVerifying || _isGeneratingImages)
-                        ? const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(color: Colors.white),
-                              SizedBox(width: 10),
-                              Text(
-                                'Please wait...',
-                                style: TextStyle(
-                                  fontSize: 19,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
-                          )
-                        : Text(
-                            _isVerified ? 'Verified Successfully' : 'Verify OTP',
-                            style: const TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.bold,
-                            ),
+                    child: _isVerifying
+                        ? const Row( // Show loading indicator when processing
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.white),
+                        SizedBox(width: 10),
+                        Text(
+                          'Verifying OTP...',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                           ),
+                        ),
+                      ],
+                    )
+                        : Text( // Show appropriate button text
+                      _isVerified ? 'OTP Verified' : 'Verify OTP',
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
               ),

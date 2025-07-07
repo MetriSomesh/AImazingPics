@@ -5,10 +5,11 @@ import 'package:camera/camera.dart';
 import 'package:frontend/screens/user_information.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'dart:io';
-import 'dart:async';
+import 'dart:async'; // Import for Timer
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+// Main screen for capturing selfies with face detection
 class CameraScreen extends StatefulWidget {
   @override
   _CameraScreenState createState() => _CameraScreenState();
@@ -19,19 +20,24 @@ class _CameraScreenState extends State<CameraScreen> {
   List<CameraDescription>? _cameras;
   bool _isCameraInitialized = false;
   XFile? _capturedImage;
-  
+  bool _isHighQualityMode = false; // Track if we're in high quality mode
+
+  // Face detection variables
   late FaceDetector _faceDetector;
-  
   List<Face> _faces = [];
   bool _isFaceDetected = false;
   bool _isFaceInFrame = false;
   bool _isProcessing = false;
-  
-  
+
+  // Capture timer variables
+  Timer? _captureTimer;
+  int _countdownSeconds = 2; // 2-second delay
+  bool _captureTriggered = false; // Indicates if capture sequence has started
+
+  // Frame processing optimization
   int _frameCounter = 0;
-  int _frameSkip = 2;
+  int _frameSkip = 3; // Increased to reduce processing load
   DateTime _lastProcessed = DateTime.now();
-  bool _captureTriggered = false;
 
   @override
   void initState() {
@@ -48,98 +54,176 @@ class _CameraScreenState extends State<CameraScreen> {
         enableLandmarks: false,
         enableClassification: false,
         enableTracking: true,
-        minFaceSize: 0.25, 
+        minFaceSize: 0.25,
       ),
     );
   }
 
-  Future<void> _initializeCamera() async {
+  Future<void> _initializeCamera({ResolutionPreset resolution = ResolutionPreset.low}) async {
     try {
       _cameras = await availableCameras();
 
-      
       CameraDescription frontCamera = _cameras!.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.front,
         orElse: () => _cameras!.first,
       );
 
-      _controller = CameraController(
+      final newController = CameraController(
         frontCamera,
-        ResolutionPreset.low, 
+        resolution,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.nv21, 
+        imageFormatGroup: ImageFormatGroup.jpeg, // Use JPEG for better quality
       );
 
-      await _controller!.initialize();
+      await newController.initialize();
 
       if (mounted) {
         setState(() {
+          _controller = newController;
           _isCameraInitialized = true;
         });
 
-      
-        _controller!.startImageStream(_processCameraImage);
+        // Ensure we only start streaming if a capture isn't already pending
+        if (_capturedImage == null && !_captureTriggered) {
+          _controller!.startImageStream(_processCameraImage);
+        }
       }
     } catch (e) {
       print('Error initializing camera: $e');
+      // Fallback to low resolution if medium fails
+      if (resolution != ResolutionPreset.low) {
+        await _initializeCamera(resolution: ResolutionPreset.low);
+      }
+    }
+  }
+
+  Future<void> _switchToHighQuality() async {
+    if (_isHighQualityMode) return;
+
+    try {
+      // Stop current stream
+      if (_controller != null && _controller!.value.isStreamingImages) {
+        await _controller!.stopImageStream();
+      }
+
+      // Reinitialize with high resolution
+      await _initializeCamera(resolution: ResolutionPreset.high);
+
+      setState(() {
+        _isHighQualityMode = true;
+      });
+
+      // Restart processing (only if not already captured or triggering)
+      if (_capturedImage == null && !_captureTriggered) {
+        _controller!.startImageStream(_processCameraImage);
+      }
+    } catch (e) {
+      print("Failed to switch to high quality: $e");
     }
   }
 
   Future<void> _processCameraImage(CameraImage cameraImage) async {
-   
+    // Only process if no capture is pending or completed, and not already processing a frame
     if (_isProcessing || _capturedImage != null || _captureTriggered) return;
-    
-    
+
     _frameCounter++;
     if (_frameCounter % _frameSkip != 0) return;
-    
-    
+
     final now = DateTime.now();
-    if (now.difference(_lastProcessed).inMilliseconds < 125) return;
-    
+    // Throttle processing to once every 200ms
+    if (now.difference(_lastProcessed).inMilliseconds < 200) return;
+
     _isProcessing = true;
     _lastProcessed = now;
-    
+
     try {
       final inputImage = _convertCameraImage(cameraImage);
       if (inputImage != null) {
         final faces = await _faceDetector.processImage(inputImage);
-        
+
         if (mounted) {
           setState(() {
             _faces = faces;
             _isFaceDetected = faces.isNotEmpty;
-            
-            if (_isFaceDetected && faces.isNotEmpty) {
-                _captureTriggered = true;
-                _capturePhotoAutomatically();
-            } else {
-              _isFaceInFrame = false;
+
+            // Update _isFaceInFrame state
+            if (_isFaceDetected && _isHighQualityMode && !_captureTriggered) {
+              // If face is in frame, in HQ mode, and capture hasn't been triggered yet
+              _startCaptureTimer();
+            } else if ( _captureTimer != null && _captureTimer!.isActive) {
+              // If face moves out of frame while timer is active, cancel it
+              _cancelCaptureTimer();
+              _captureTriggered = false; // Reset trigger state
+              _countdownSeconds = 2; // Reset countdown for next time
+            } else if ( !_isHighQualityMode) {
+              // If face is in frame but not yet in HQ mode, switch to HQ
+              _switchToHighQuality();
             }
           });
         }
       }
     } catch (e) {
-      //print('Error processing image: $e');
-      
-     
-      if (_frameSkip < 5) _frameSkip++;
+      if (kDebugMode) {
+        print('Error processing camera image: $e');
+      }
+      if (_frameSkip < 6) _frameSkip++; // Increase frame skip more if needed
     } finally {
       _isProcessing = false;
     }
   }
 
+  void _startCaptureTimer() {
+    // If a timer is already active, don't start a new one
+    if (_captureTimer != null && _captureTimer!.isActive) {
+      return;
+    }
+
+    setState(() {
+      _captureTriggered = true; // Indicate that capture sequence has started
+      _countdownSeconds = 2; // Reset countdown for a fresh start
+    });
+
+    _captureTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_countdownSeconds > 0) {
+          _countdownSeconds--;
+        } else {
+          timer.cancel(); // Stop the countdown
+          _capturePhotoAutomatically(); // Trigger the photo capture
+        }
+      });
+    });
+  }
+
+  void _cancelCaptureTimer() {
+    if (_captureTimer != null) {
+      _captureTimer!.cancel();
+      _captureTimer = null;
+    }
+    // Only reset these if we haven't already captured an image
+    if (_capturedImage == null) {
+      setState(() {
+        _countdownSeconds = 2;
+        _captureTriggered = false;
+      });
+    }
+  }
+
   InputImage? _convertCameraImage(CameraImage cameraImage) {
     try {
+      if (_cameras == null || _cameras!.isEmpty) return null;
       final camera = _cameras!.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.front,
       );
-      
+
       final rotation = InputImageRotationValue.fromRawValue(
         camera.sensorOrientation,
       ) ?? InputImageRotation.rotation0deg;
-      
-      
+
       if (Platform.isAndroid) {
         return InputImage.fromBytes(
           bytes: _concatenatePlanes(cameraImage.planes),
@@ -150,10 +234,22 @@ class _CameraScreenState extends State<CameraScreen> {
             bytesPerRow: cameraImage.planes[0].bytesPerRow,
           ),
         );
+      } else if (Platform.isIOS) {
+         return InputImage.fromBytes(
+          bytes: _concatenatePlanes(cameraImage.planes),
+          metadata: InputImageMetadata(
+            size: Size(cameraImage.width.toDouble(), cameraImage.height.toDouble()),
+            rotation: rotation, // Should be correct for iOS too
+            format: InputImageFormat.bgra8888, // iOS uses BGRA8888 for most common image streams
+            bytesPerRow: cameraImage.planes[0].bytesPerRow,
+          ),
+        );
       }
-      
+      return null;
     } catch (e) {
-      //print('Error converting camera image: $e');
+      if (kDebugMode) {
+        print('Error converting CameraImage: $e');
+      }
       return null;
     }
   }
@@ -166,43 +262,32 @@ class _CameraScreenState extends State<CameraScreen> {
     return allBytes.done().buffer.asUint8List();
   }
 
-  bool _checkFaceInFrame(Face face) {
-    
-    final faceRect = face.boundingBox;
-    final centerX = faceRect.left + faceRect.width / 2;
-    final centerY = faceRect.top + faceRect.height / 2;
-    
-   
-    final isCentered = centerX > 0.4 && centerX < 0.6 && 
-                      centerY > 0.4 && centerY < 0.6;    
-    final faceSize = faceRect.width * faceRect.height;
-    final goodSize = faceSize > 0.1 && faceSize < 0.3;
-    
-    return isCentered && goodSize;
-  }
+ 
 
   Future<void> _capturePhotoAutomatically() async {
-   
-    if (_controller != null && _controller!.value.isStreamingImages) {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+
+    // Stop the image stream to prevent further processing while capturing
+    if (_controller!.value.isStreamingImages) {
       await _controller!.stopImageStream();
     }
+    _cancelCaptureTimer(); // Ensure timer is cancelled if it's still running
 
-   
-    await Future.delayed(Duration(seconds: 3));
-    
-    if (!_controller!.value.isInitialized) return;
-    
     try {
       final XFile image = await _controller!.takePicture();
-      setState(() {
-        _capturedImage = image;
-      });
+
+      if (mounted) {
+        setState(() {
+          _capturedImage = image;
+          _captureTriggered = false; // Reset trigger after capture
+        });
+      }
     } catch (e) {
-      //print('Error capturing photo: $e');
-     
+      if (kDebugMode) {
+        print('Auto capture failed: $e');
+      }
+      // If auto capture fails, allow retrying and restart stream
       _captureTriggered = false;
-      
-     
       if (_controller != null && _controller!.value.isInitialized) {
         _controller!.startImageStream(_processCameraImage);
       }
@@ -210,36 +295,60 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _capturePhoto() async {
-    if (!_controller!.value.isInitialized) return;
+    if (_controller == null || !_controller!.value.isInitialized) return;
+
+    _cancelCaptureTimer(); // Cancel any automatic capture in progress
 
     try {
-      await _controller!.stopImageStream();
+      // First switch to high quality if not already
+      if (!_isHighQualityMode) {
+        await _switchToHighQuality();
+        await Future.delayed(const Duration(milliseconds: 500)); // Let camera adjust
+      }
+
+      // Stop the image stream before manual capture to ensure clean capture
+      if (_controller!.value.isStreamingImages) {
+        await _controller!.stopImageStream();
+      }
+
       final XFile image = await _controller!.takePicture();
-      setState(() {
-        _capturedImage = image;
-      });
+      if (mounted) {
+        setState(() {
+          _capturedImage = image;
+          _captureTriggered = false; // Reset trigger state
+        });
+      }
     } catch (e) {
-      print('Error capturing photo: $e');
+      if (kDebugMode) {
+        print('Manual capture failed: $e');
+      }
+      // Restart stream if manual capture fails, unless already captured
+      if (_capturedImage == null && _controller != null && _controller!.value.isInitialized) {
+        _controller!.startImageStream(_processCameraImage);
+      }
     }
   }
 
   void _retakePhoto() async {
+    _cancelCaptureTimer(); // Ensure any running timer is cancelled
     setState(() {
       _capturedImage = null;
       _faces = [];
       _isFaceDetected = false;
       _isFaceInFrame = false;
       _captureTriggered = false;
-      _frameSkip = 2; 
+      _frameSkip = 3; // Reset frame skip
+      _isHighQualityMode = false; // Go back to medium quality for detection
+      _countdownSeconds = 2; // Reset countdown
     });
-    
-    if (_controller != null && _controller!.value.isInitialized) {
-      _controller!.startImageStream(_processCameraImage);
-    }
+
+    // Switch back to medium quality for face detection and restart stream
+    await _initializeCamera(resolution: ResolutionPreset.medium);
   }
 
   @override
   void dispose() {
+    _cancelCaptureTimer(); // Ensure timer is disposed
     _controller?.dispose();
     _faceDetector.close();
     _isProcessing = false;
@@ -251,16 +360,15 @@ class _CameraScreenState extends State<CameraScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text('AImazing'),
+        title: const Text('AImazing'),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
       ),
       body: SafeArea(
         child: Column(
           children: [
-          
-            Padding(
-              padding: const EdgeInsets.all(20.0),
+            const Padding(
+              padding: EdgeInsets.all(20.0),
               child: Text(
                 'Take a Selfie',
                 style: TextStyle(
@@ -271,36 +379,38 @@ class _CameraScreenState extends State<CameraScreen> {
               ),
             ),
             
-          
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20.0),
               child: Text(
-                _capturedImage != null 
+                _capturedImage != null
                     ? 'Photo captured successfully!'
-                    : _isFaceInFrame 
-                        ? 'Face detected! Capturing photo...'
-                        : 'Position your face within the outline',
+                    : _captureTriggered
+                        ? 'Please stay still... ($_countdownSeconds)' // Show countdown
+                        : !_isHighQualityMode
+                            ? 'Face detected! Switching to high quality...' // New text while switching to HQ
+                            : _isFaceDetected
+                                ? 'Face detected! Align for capture.' // Initial prompt when face detected and stable in frame
+                                : 'Position your face within the outline',
                 style: TextStyle(
-                  color: _isFaceInFrame ? Colors.green : Colors.white70,
+                  color:  _capturedImage != null ? Colors.green : Colors.white70,
                   fontSize: 16,
                 ),
                 textAlign: TextAlign.center,
               ),
             ),
             
-            SizedBox(height: 20),
-            
+            const SizedBox(height: 20),
             
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _buildStatusIndicator('Face Detected', _isFaceDetected),
-                
+                const SizedBox(width: 20),
+               
               ],
             ),
             
-            SizedBox(height: 20),
-            
+            const SizedBox(height: 20),
             
             Expanded(
               child: Center(
@@ -315,7 +425,6 @@ class _CameraScreenState extends State<CameraScreen> {
                     borderRadius: BorderRadius.circular(17),
                     child: Stack(
                       children: [
-                       
                         if (_capturedImage != null)
                           Image.file(
                             File(_capturedImage!.path),
@@ -332,14 +441,13 @@ class _CameraScreenState extends State<CameraScreen> {
                         else
                           Container(
                             color: Colors.grey[800],
-                            child: Center(
+                            child: const Center(
                               child: CircularProgressIndicator(
                                 color: Colors.white,
                               ),
                             ),
                           ),
                         
-                     
                         if (_capturedImage == null)
                           CustomPaint(
                             painter: FaceOutlinePainter(
@@ -354,9 +462,8 @@ class _CameraScreenState extends State<CameraScreen> {
               ),
             ),
             
-            SizedBox(height: 30),
+            const SizedBox(height: 30),
             
-           
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40.0),
               child: SizedBox(
@@ -375,7 +482,7 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
                   child: Text(
                     _capturedImage != null ? 'Retake Photo' : 'Capture Manually',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -384,7 +491,6 @@ class _CameraScreenState extends State<CameraScreen> {
               ),
             ),
             
-           
             if (_capturedImage != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 10),
@@ -393,16 +499,14 @@ class _CameraScreenState extends State<CameraScreen> {
                   height: 50,
                   child: ElevatedButton(
                     onPressed: () {
-                     
-                    if (_capturedImage != null) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => UserInfoScreen(imagePath: _capturedImage!.path),
-      ),
-    );
-  }
-                    
+                      if (_capturedImage != null) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => UserInfoScreen(imagePath: _capturedImage!.path),
+                          ),
+                        );
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
@@ -411,7 +515,7 @@ class _CameraScreenState extends State<CameraScreen> {
                         borderRadius: BorderRadius.circular(25),
                       ),
                     ),
-                    child: Text(
+                    child: const Text(
                       'Continue',
                       style: TextStyle(
                         fontSize: 18,
@@ -422,7 +526,7 @@ class _CameraScreenState extends State<CameraScreen> {
                 ),
               ),
             
-            SizedBox(height: 30),
+            const SizedBox(height: 30),
           ],
         ),
       ),
@@ -440,7 +544,7 @@ class _CameraScreenState extends State<CameraScreen> {
             shape: BoxShape.circle,
           ),
         ),
-        SizedBox(width: 8),
+        const SizedBox(width: 8),
         Text(
           label,
           style: TextStyle(
@@ -493,12 +597,10 @@ class FaceOutlinePainter extends CustomPainter {
 
     _drawDashedPath(canvas, shoulderPath, dashPaint);
 
-  
     final guidelinePaint = Paint()
       ..color = Colors.white24
       ..strokeWidth = 1.0
       ..style = PaintingStyle.stroke;
-
 
     canvas.drawLine(
       Offset(size.width * 0.5, size.height * 0.1),
@@ -514,10 +616,7 @@ class FaceOutlinePainter extends CustomPainter {
   }
 
   void _drawDashedOval(Canvas canvas, Rect rect, Paint paint) {
-    const dashWidth = 8.0;
-    const dashSpace = 4.0;
     final path = Path()..addOval(rect);
-    
     _drawDashedPath(canvas, path, paint);
   }
 

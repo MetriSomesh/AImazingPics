@@ -1,3 +1,4 @@
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,8 +9,9 @@ import 'dart:convert';
 
 import 'package:frontend/screens/otp_verification.dart';
 
+// Screen where users enter their profile information after taking a selfie
 class UserInfoScreen extends StatefulWidget {
-  final String imagePath;
+  final String imagePath; // Path to the captured selfie image
 
   const UserInfoScreen({Key? key, required this.imagePath}) : super(key: key);
 
@@ -18,47 +20,51 @@ class UserInfoScreen extends StatefulWidget {
 }
 
 class _UserInfoScreenState extends State<UserInfoScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _mobileController = TextEditingController();
-  final TextEditingController _displayNameController = TextEditingController();
-  var _uploadImageResponse;
+  // Form and field controllers
+  final _formKey = GlobalKey<FormState>(); // Key for form validation
+  final TextEditingController _nameController = TextEditingController(); // For full name
+  final TextEditingController _mobileController = TextEditingController(); // For mobile number
+  final TextEditingController _displayNameController = TextEditingController(); // For optional display name
 
-  bool _isLoading = false;
-   bool _isUploading = false;
-  //bool _otpSent = false;
+  var _uploadImageResponse; // Stores the response from image upload
+  bool _isLoading = false; // Shows loading state during OTP request
+  bool _isUploading = false; // Shows loading state during image upload
 
+  // Get our base API URL from environment variables
   final String _baseUrl = dotenv.env['BASE_URL']!;
 
   @override
   void dispose() {
+    // Clean up controllers when screen is disposed
     _nameController.dispose();
     _mobileController.dispose();
     _displayNameController.dispose();
     super.dispose();
   }
 
-    Future<void> _uploadImage(String userId, bool isInputImage) async {
-    if (_isUploading) return;
+  // Uploads the captured image to our server
+  Future<void> _uploadImage(String userId, bool isInputImage) async {
+    if (_isUploading) return; // Prevent multiple uploads
 
     setState(() {
-      _isUploading = true;
+      _isUploading = true; // Show loading state
     });
 
     try {
-     
+      // Prepare the image file
       XFile imageFile = XFile(widget.imagePath);
-
       
+      // Read image as bytes
       List<int> imageBytes = await imageFile.readAsBytes();
-     
-      String base64Image = base64Encode(imageBytes);
-
       
+      // Convert to base64 for API
+      String base64Image = base64Encode(imageBytes);
+      
+      // Determine file type information
       String contentType = imageFile.mimeType ?? _getMimeType(imageFile.path);
       String fileExtension = imageFile.name.split('.').last;
 
-     
+      // Prepare the request body
       Map<String, dynamic> requestBody = {
         "user_id": userId,
         "file_content": base64Image,
@@ -66,32 +72,36 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
         "file_extension": fileExtension,
       };
 
-      String endpoint = isInputImage ? '/upload/input_image' : '/upload/output_image';
-      Uri url = Uri.parse('$_baseUrl$endpoint');
+      // Determine the correct API endpoint
+      String imageTypeParam = isInputImage ? 'input' : 'output';
+      Uri url = Uri.parse('$_baseUrl/upload/image?image_type=$imageTypeParam');
 
+      // Make the upload request
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: json.encode(requestBody),
       );
 
+      // Check if widget is still mounted before updating state
       if (!mounted) return;
 
       setState(() {
-        _isUploading = false;
+        _isUploading = false; // Hide loading state
       });
 
+      // Handle the response
       if (response.statusCode == 200) {
-        
+        // Success case - store response and show confirmation
         _uploadImageResponse = json.decode(response.body);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Image uploaded successfully!'), backgroundColor: Colors.green),
         );
-
       } else {
-      
+        // Handle API errors
         String errorMessage = 'Failed to upload image.';
         try {
+          // Try to get detailed error message
           Map<String, dynamic> errorData = json.decode(response.body);
           if (errorData.containsKey('detail')) {
             if (errorData['detail'] is String) {
@@ -101,13 +111,15 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
             }
           }
         } catch (_) {
-        
+          // If we can't parse the error details, use default message
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $errorMessage'), backgroundColor: Colors.red),
         );
+        throw Exception('Image upload failed: $errorMessage'); // Throw an error to stop further execution
       }
     } on SocketException catch (e) {
+      // Handle network errors
       if (!mounted) return;
       setState(() {
         _isUploading = false;
@@ -115,20 +127,21 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Network error: ${e.message}'), backgroundColor: Colors.red),
       );
-      print('Network error during image upload: $e');
+      throw Exception('Network error during image upload: ${e.message}'); // Throw an error
     } catch (e) {
+      // Handle all other errors
       if (!mounted) return;
       setState(() {
         _isUploading = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('An unexpected error occurred: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('An unexpected error occurred during image upload: $e'), backgroundColor: Colors.red),
       );
-      
+      throw Exception('An unexpected error occurred during image upload: $e'); // Throw an error
     }
   }
 
-  
+  // Helper to determine MIME type from file extension
   String _getMimeType(String path) {
     String ext = path.split('.').last.toLowerCase();
     switch (ext) {
@@ -144,93 +157,119 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
       case 'webp':
         return 'image/webp';
       default:
-        return 'application/octet-stream';
+        return 'application/octet-stream'; // Default for unknown types
     }
   }
 
+  // Sends OTP to the user's mobile number
+  Future<void> _sendOTP() async {
+    if (!_formKey.currentState!.validate()) {
+      return; // Stop if form is not valid
+    }
 
- Future<void> _sendOTP() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+    setState(() {
+      _isLoading = true; // Show loading state
+    });
 
-      try {
-        final response = await http.post(
-          Uri.parse('$_baseUrl/users/create'),
+    try {
+      // Step 1: Create the user account
+      final userCreateResponse = await http.post(
+        Uri.parse('$_baseUrl/users/create'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({ 
+          'name': _nameController.text,
+          'mobile': _mobileController.text,
+          'diaplay_name': _displayNameController.text,
+        }),
+      );
+
+      if (userCreateResponse.statusCode == 200) {
+        final Map<String, dynamic> userData = json.decode(userCreateResponse.body);
+        final String userId = userData['user_id'];
+        final String phoneNumber = userData['phone_number'];
+
+        // Step 2: Upload the selfie image using the obtained user_id
+        await _uploadImage(userId, true); // This will throw an exception if upload fails
+
+        // Step 3: Send OTP to the user's phone
+        final otpResponse = await http.post(
+          Uri.parse('$_baseUrl/auth/send-otp'),
           headers: {'Content-Type': 'application/json'},
-          body: json.encode({   
-            'name': _nameController.text,
-            'mobile': _mobileController.text,
-            'diaplay_name': _displayNameController.text,
-          
+          body: json.encode({ 
+            "phone": phoneNumber
           }),
         );
 
-        if (response.statusCode == 200) {
-          final Map<String, dynamic> responseData = json.decode(response.body);
-    
-          final user_id = responseData['user_id'];
-         
-          final phone_number = responseData['phone_number'];
-
-           await _uploadImage(user_id, true);
-
-        try {
-           final otpResponse = await http.post(
-           Uri.parse('$_baseUrl/auth/send-otp'),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode({   
-           "phone":phone_number
-          }),
-           );
-
-           if(otpResponse.statusCode==200){
-          
-             Navigator.push(context,
-                      
-                      MaterialPageRoute(builder: (context)=> OTPVerificationScreen(mobileNumber: _mobileController.text, publicInputUrl: _uploadImageResponse['public_url'], userId: user_id,))
-                      );
-           }else{
-              ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Response is ${otpResponse.body}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-           }
-        } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error is ${e}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-
+        if (otpResponse.statusCode == 200) {
+          // OTP sent successfully - navigate to verification screen
+          if (mounted) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => OTPVerificationScreen(
+                  mobileNumber: _mobileController.text, 
+                  publicInputUrl: _uploadImageResponse['public_url'], 
+                  userId: userId,
+                ),
+              ),
+            );
+          }
         } else {
-         
+          // OTP sending failed
+          String errorMessage = 'Failed to send OTP.';
+          try {
+            Map<String, dynamic> errorData = json.decode(otpResponse.body);
+            if (errorData.containsKey('detail')) {
+              errorMessage = errorData['detail'].toString();
+            }
+          } catch (_) {
+            // Fallback
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error sending OTP: $errorMessage'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } else {
+        // User creation failed
+        String errorMessage = 'Failed to create user.';
+        try {
+          Map<String, dynamic> errorData = json.decode(userCreateResponse.body);
+          if (errorData.containsKey('detail')) {
+            errorMessage = errorData['detail'].toString();
+          }
+        } catch (_) {
+          // Fallback
+        }
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to send OTP: ${response.body}'),
+              content: Text('Error creating user: $errorMessage'),
               backgroundColor: Colors.red,
             ),
           );
         }
-      } catch (e) {
-       
+      }
+    } on Exception catch (e) {
+      // Catch any exceptions thrown by _uploadImage or other http calls
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Network error: $e'),
+            content: Text('Operation failed: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
+      }
+    } finally {
+      // Always hide loading state when done
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
@@ -238,14 +277,14 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.black, // Dark theme
       appBar: AppBar(
         title: const Text('AImazing'),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back), 
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context), // Back navigation
         ),
       ),
       body: SafeArea(
@@ -256,7 +295,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-            
+                // Screen title
                 const Padding( 
                   padding: EdgeInsets.only(bottom: 20.0),
                   child: Text(
@@ -269,7 +308,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
                   ),
                 ),
 
-           
+                // User's selfie preview
                 Center(
                   child: Container(
                     width: 120,
@@ -283,14 +322,15 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
                         File(widget.imagePath),
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) =>
-                            const Icon(Icons.person, color: Colors.white, size: 60), 
+                            const Icon(Icons.person, color: Colors.white, size: 60), // Fallback if image fails to load
                       ),
                     ),
                   ),
                 ),
 
                 const SizedBox(height: 30),
-               
+                
+                // Full name field
                 const Text( 
                   'Full Name',
                   style: TextStyle(
@@ -323,7 +363,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
 
                 const SizedBox(height: 20), 
 
-                
+                // Mobile number field
                 const Text( 
                   'Mobile Number',
                   style: TextStyle(
@@ -337,8 +377,8 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
                   style: const TextStyle(color: Colors.white), 
                   keyboardType: TextInputType.phone,
                   inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(10),
+                    FilteringTextInputFormatter.digitsOnly, // Only numbers
+                    LengthLimitingTextInputFormatter(10), // Exactly 10 digits
                   ],
                   decoration: InputDecoration(
                     filled: true,
@@ -364,7 +404,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
 
                 const SizedBox(height: 20), 
 
-                
+                // Optional display name field
                 const Text( 
                   'Display Name (Optional)',
                   style: TextStyle(
@@ -391,36 +431,33 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
 
                 const SizedBox(height: 40), 
 
-               
+                // Get OTP button
                 Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 10),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _isLoading? null:_sendOTP();
-                      
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(25),
+                  padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 10),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _sendOTP, // Disable if loading
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(25),
+                        ),
                       ),
-                    ),
-                    child: Text(
-                      'Get OTP',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      child: _isLoading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text(
+                              'Get OTP',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                     ),
                   ),
                 ),
-              ),
-
-                
               ],
             ),
           ),
