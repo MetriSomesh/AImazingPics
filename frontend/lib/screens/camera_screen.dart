@@ -9,6 +9,8 @@ import 'dart:async'; // Import for Timer
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:permission_handler/permission_handler.dart';
+
 // Main screen for capturing selfies with face detection
 class CameraScreen extends StatefulWidget {
   @override
@@ -42,6 +44,7 @@ class _CameraScreenState extends State<CameraScreen> {
   @override
   void initState() {
     super.initState();
+    _requestPermissions();
     _initializeFaceDetector();
     _initializeCamera();
   }
@@ -58,6 +61,22 @@ class _CameraScreenState extends State<CameraScreen> {
       ),
     );
   }
+
+  Future<void> _requestPermissions() async {
+  Map<Permission, PermissionStatus> statuses = await [
+    Permission.camera,
+    Permission.photos, // For Android 13+
+    Permission.storage, // For older Android versions
+  ].request();
+
+  if (statuses[Permission.camera]?.isGranted == false ||
+      (statuses[Permission.photos]?.isGranted == false &&
+       statuses[Permission.storage]?.isGranted == false)) {
+    // Handle the case where permissions are not granted
+    //print("Permissions not granted");
+  }
+}
+
 
   Future<void> _initializeCamera({ResolutionPreset resolution = ResolutionPreset.low}) async {
     try {
@@ -126,7 +145,7 @@ class _CameraScreenState extends State<CameraScreen> {
   } catch (e) {
     print("Failed to switch to high quality: $e");
     // Fallback to medium resolution if high fails
-    await _initializeCamera(resolution: ResolutionPreset.medium);
+    await _initializeCamera(resolution: ResolutionPreset.low);
   }
 }
 
@@ -351,7 +370,7 @@ class _CameraScreenState extends State<CameraScreen> {
     });
 
     // Switch back to medium quality for face detection and restart stream
-    await _initializeCamera(resolution: ResolutionPreset.medium);
+    await _initializeCamera(resolution: ResolutionPreset.low);
   }
 
   @override

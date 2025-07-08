@@ -50,9 +50,10 @@ class _ImageSelectionScreenState extends State<ImageSelectionScreen> {
     try {
       // Define prompts for image generation
       List<String> imagePrompts = [
-        "convert given image to a man playing archery, in a front shot He is dressed like robin hood in 1600 ad face should be visible and concentrating on the target",
+        "convert given image to a man playing archery in a front shot He is dressed like robin hood in 1600 ad face should be visible and concentrating on the target",
         "convert given image to a man playing bowling in mid stride about to release the ball Face should be visible and happy",
-        "convert given image to a man playing a cover drive in a test match Camera should be in front Face should have a look of determination"
+        "convert given image to a man playing a pull shot in the cricket",
+        "convert given image to a man playing chess with a older opponent the opponent is pissed off and man looks calm",
       ];
 
       // Convert prompts list to comma-separated string
@@ -245,10 +246,10 @@ class _ImageSelectionScreenState extends State<ImageSelectionScreen> {
         "file_content": base64Image, // The actual image data
         "file_extension": ".$fileExtension", // Like ".jpg"
         "content_type": contentType, // Like "image/jpeg"
+        "image_type":'output'
       };
 
-    String imageTypeParam = 'output';
-      Uri url = Uri.parse('$_baseUrl/upload/image?image_type=$imageTypeParam');
+      Uri url = Uri.parse('$_baseUrl/upload/image');
       // Send the upload request to our API
       final uploadResponse = await http.post(
         url,

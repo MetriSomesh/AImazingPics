@@ -43,7 +43,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
   }
 
   // Uploads the captured image to our server
-  Future<void> _uploadImage(String userId, bool isInputImage) async {
+  Future<void> _uploadImage(String userId) async {
     if (_isUploading) return; // Prevent multiple uploads
 
     setState(() {
@@ -70,6 +70,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
         "file_content": base64Image,
         "content_type": contentType,
         "file_extension": fileExtension,
+        "image_type":'input'
       };
 
       // Determine the correct API endpoint
@@ -189,7 +190,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
         final String phoneNumber = userData['phone_number'];
 
         // Step 2: Upload the selfie image using the obtained user_id
-        await _uploadImage(userId, true); // This will throw an exception if upload fails
+        await _uploadImage(userId); // This will throw an exception if upload fails
 
         // Step 3: Send OTP to the user's phone
         final otpResponse = await http.post(
