@@ -98,29 +98,37 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _switchToHighQuality() async {
-    if (_isHighQualityMode) return;
+  if (_isHighQualityMode || _controller == null) return;
 
-    try {
-      // Stop current stream
-      if (_controller != null && _controller!.value.isStreamingImages) {
-        await _controller!.stopImageStream();
-      }
-
-      // Reinitialize with high resolution
-      await _initializeCamera(resolution: ResolutionPreset.high);
-
-      setState(() {
-        _isHighQualityMode = true;
-      });
-
-      // Restart processing (only if not already captured or triggering)
-      if (_capturedImage == null && !_captureTriggered) {
-        _controller!.startImageStream(_processCameraImage);
-      }
-    } catch (e) {
-      print("Failed to switch to high quality: $e");
+  try {
+    // Store current streaming state
+    final wasStreaming = _controller!.value.isStreamingImages;
+    
+    // Stop current stream if active
+    if (wasStreaming) {
+      await _controller!.stopImageStream();
     }
+
+    // Dispose the old controller before creating a new one
+    await _controller!.dispose();
+
+    // Reinitialize with high resolution
+    await _initializeCamera(resolution: ResolutionPreset.high);
+
+    setState(() {
+      _isHighQualityMode = true;
+    });
+
+    // Restart processing only if we were streaming before
+    if (wasStreaming && _capturedImage == null && !_captureTriggered) {
+      await _controller!.startImageStream(_processCameraImage);
+    }
+  } catch (e) {
+    print("Failed to switch to high quality: $e");
+    // Fallback to medium resolution if high fails
+    await _initializeCamera(resolution: ResolutionPreset.medium);
   }
+}
 
   Future<void> _processCameraImage(CameraImage cameraImage) async {
     // Only process if no capture is pending or completed, and not already processing a frame
@@ -155,7 +163,7 @@ class _CameraScreenState extends State<CameraScreen> {
               _cancelCaptureTimer();
               _captureTriggered = false; // Reset trigger state
               _countdownSeconds = 2; // Reset countdown for next time
-            } else if ( !_isHighQualityMode) {
+            } else if ( _isFaceDetected &&!_isHighQualityMode) {
               // If face is in frame but not yet in HQ mode, switch to HQ
               _switchToHighQuality();
             }
@@ -406,7 +414,7 @@ class _CameraScreenState extends State<CameraScreen> {
               children: [
                 _buildStatusIndicator('Face Detected', _isFaceDetected),
                 const SizedBox(width: 20),
-               
+                _buildStatusIndicator('HQ Mode', _isHighQualityMode),
               ],
             ),
             

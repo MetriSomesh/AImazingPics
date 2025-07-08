@@ -73,7 +73,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
       };
 
       // Determine the correct API endpoint
-      String imageTypeParam = isInputImage ? 'input' : 'output';
+      String imageTypeParam = 'input';
       Uri url = Uri.parse('$_baseUrl/upload/image?image_type=$imageTypeParam');
 
       // Make the upload request
