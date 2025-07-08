@@ -159,10 +159,10 @@ import boto3
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
-from bson import ObjectId
-from enum import Enum
+from bson import ObjectId  # Re-introducing for MongoDB ID validation
+# from enum import Enum # Removed as per request
 
-from models.user import User
+from models.user import User  # Re-introducing for database interaction
 from schemas.image_upload import ImageUploadRequest
 
 # Load environment variables from .env file
@@ -184,11 +184,6 @@ print(f"DEBUG: AWS_S3_BUCKET: {AWS_S3_BUCKET}")
 print(f"DEBUG: AWS_REGION: {AWS_REGION}")
 # --- END DEBUGGING ENVIRONMENT VARIABLES ---
 
-# Define possible image types (like dropdown options)
-class ImageType(str, Enum):
-    INPUT = "input"
-    OUTPUT = "output"
-
 # Connect to AWS S3 service using our credentials
 try:
     s3_client = boto3.client(
@@ -200,7 +195,7 @@ try:
     print("DEBUG: S3 client initialized successfully.")
 except Exception as e:
     print(f"ERROR: Failed to initialize S3 client: {str(e)}")
-    # Consider raising an error here if S3 client is critical for app startup
+    raise Exception(f"Failed to initialize S3 client: {str(e)}")
 
 # Helper function to actually upload to S3
 async def _upload_image_to_s3(request: ImageUploadRequest):
@@ -209,29 +204,24 @@ async def _upload_image_to_s3(request: ImageUploadRequest):
     print(f"DEBUG: file_content length (base64): {len(request.file_content) if request.file_content else 0}")
 
     try:
-        # Convert base64 string back to binary image data
         image_bytes = base64.b64decode(request.file_content)
         print(f"DEBUG: Base64 decoded successfully. Image bytes length: {len(image_bytes)}")
     except Exception as e:
         print(f"ERROR: Failed to decode Base64 image content: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid Base64 image content.")
 
-    # Create a file-like object from binary data
     file_obj = BytesIO(image_bytes)
 
-    # Clean up file extension (remove dot if present)
     file_ext = request.file_extension.lower().replace('.', '')
     if not file_ext:
         print("ERROR: File extension is empty after cleanup.")
         raise HTTPException(status_code=400, detail="File extension is required.")
     print(f"DEBUG: Cleaned file extension: {file_ext}")
 
-    # Create unique filename using UUID
     unique_filename = f"{uuid4()}.{file_ext}"
     print(f"DEBUG: Generated unique filename: {unique_filename}")
 
     try:
-        # Upload to S3 bucket
         print(f"DEBUG: Attempting S3 upload to bucket: {AWS_S3_BUCKET}, key: {unique_filename}, ContentType: {request.content_type}")
         s3_client.upload_fileobj(
             file_obj,
@@ -246,12 +236,10 @@ async def _upload_image_to_s3(request: ImageUploadRequest):
         print(f"ERROR: Failed to upload to S3: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload to S3: {str(e)}")
 
-    # Generate URL that expires in 24 hours
     EXPIRES_IN_SECONDS = 24 * 60 * 60
     print(f"DEBUG: Generating presigned URL, expires in {EXPIRES_IN_SECONDS} seconds.")
 
     try:
-        # Create temporary access URL
         presigned_url = s3_client.generate_presigned_url(
             ClientMethod='get_object',
             Params={
@@ -260,21 +248,21 @@ async def _upload_image_to_s3(request: ImageUploadRequest):
             },
             ExpiresIn=EXPIRES_IN_SECONDS
         )
-        print(f"DEBUG: Presigned URL generated successfully: {presigned_url[:50]}...") # Print only start of URL for brevity
+        print(f"DEBUG: Presigned URL generated successfully: {presigned_url[:50]}...")
     except Exception as e:
         print(f"ERROR: Failed to generate presigned URL: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate presigned URL: {str(e)}")
 
     return presigned_url, unique_filename
 
-# Main API endpoint for image uploads
+# Main API endpoint for image uploads (S3 and DB)
 @router.post("/image")
 async def upload_image_route(
-    request_data: ImageUploadRequest,
-    image_type: ImageType = ImageType.INPUT
+    request_data: ImageUploadRequest
+    # image_type parameter removed
 ):
-    print(f"\n--- API Call: /upload/image ---")
-    print(f"DEBUG: Received request for user_id: {request_data.user_id}, image_type: {image_type.value}")
+    print(f"\n--- API Call: /upload/image (S3 and DB save) ---")
+    print(f"DEBUG: Received request for user_id: {request_data.user_id}")
 
     try:
         # Check if user ID format is valid
@@ -296,24 +284,20 @@ async def upload_image_route(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
         print(f"DEBUG: User found: {user.id}")
 
-        # Step 3: Update correct field based on image type
-        if image_type == ImageType.INPUT:
-            user.input_img = public_url
-            print(f"DEBUG: Updating user's input_img field to: {public_url[:50]}...")
-        else:
-            user.output_img = public_url
-            print(f"DEBUG: Updating user's output_img field to: {public_url[:50]}...")
+        # Step 3: Update the input_img field (as there's no type distinction now)
+        user.input_img = public_url
+        print(f"DEBUG: Updating user's input_img field to: {public_url[:50]}...")
 
         # Save updated user to database
         await user.save()
         print("DEBUG: User record updated successfully in database.")
 
         # Step 4: Return success info
-        print("DEBUG: Image upload route completed successfully.")
+        print("DEBUG: Image upload route completed successfully (S3 and DB save).")
         return {
             "public_url": public_url,
             "s3_key": unique_filename,
-            "image_type": image_type.value
+            "message": "Image uploaded to S3 and user record updated successfully."
         }
 
     # Error handling section:
@@ -324,11 +308,9 @@ async def upload_image_route(
         print(f"ERROR: HTTP Exception caught: Status Code {e.status_code}, Detail: {e.detail}")
         raise e
     except Exception as e:
-        # Catch-all for unexpected errors
         print(f"CRITICAL ERROR: An unexpected error occurred in upload_image_route: {str(e)}")
-        # You might want to print the full traceback for critical errors
         import traceback
-        traceback.print_exc() # This prints the traceback to stderr
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred: {str(e)}"
