@@ -39,7 +39,7 @@ async def send_otp(request: SendOtpRequest):
     phone = request.phone  # Get phone number from request
 
     # Generate a random 6-digit OTP
-    otp = random.randint(100000, 999999)  # Between 100000 and 999999
+    # otp = random.randint(100000, 999999)  # Between 100000 and 999999
     
     # Calculate expiration time (2 minutes from now)
     expiry_datetime_utc = datetime.now(timezone.utc) + timedelta(minutes=2)
@@ -57,18 +57,18 @@ async def send_otp(request: SendOtpRequest):
     formatted_phone = phone if phone.startswith('+') else f'+91{phone}'
 
     # Save OTP and expiration time to user record
-    user.otp = otp
+    user.otp = 123456  # For testing, replace with 'otp' in production
     user.otp_expiry = expiry_unix_epoch
     await user.save()
 
     try:
         # Send SMS with OTP using Twilio
-        message = client.messages.create(
-            body=f"Your AImazing verification code is: {otp}",  # SMS text
-            from_=TWILIO_PHONE_NUMBER,  # Our Twilio phone number
-            to=formatted_phone          # User's phone number
-        )
-        return {"message": "OTP sent successfully", "sid": message.sid}
+        # message = client.messages.create(
+        #     body=f"Your AImazing verification code is: {otp}",  # SMS text
+        #     from_=TWILIO_PHONE_NUMBER,  # Our Twilio phone number
+        #     to=formatted_phone          # User's phone number
+        # )
+        return {"message": "OTP sent successfully", "sid": "123456"}
 
     except Exception as e:
         # Handle SMS sending errors
