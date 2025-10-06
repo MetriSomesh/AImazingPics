@@ -31,7 +31,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
   bool _isUploading = false; // Shows loading state during image upload
 
   // Get our base API URL from environment variables
-  final String _baseUrl = dotenv.env['BASE_URL']!;
+final String baseUrl = dotenv.env['BASE_URL'] ?? 'http://65.2.70.73:8000';
 
   @override
   void dispose() {
@@ -75,7 +75,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
 
       // Determine the correct API endpoint
       // String imageTypeParam = 'input';
-      Uri url = Uri.parse('$_baseUrl/upload/image');
+      Uri url = Uri.parse('$baseUrl/upload/image');
 
       // Make the upload request
       final response = await http.post(
@@ -175,7 +175,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
     try {
       // Step 1: Create the user account
       final userCreateResponse = await http.post(
-        Uri.parse('$_baseUrl/users/create'),
+        Uri.parse('$baseUrl/users/create'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({ 
           'name': _nameController.text,
@@ -194,7 +194,7 @@ class _UserInfoScreenState extends State<UserInfoScreen> {
 
         // Step 3: Send OTP to the user's phone
         final otpResponse = await http.post(
-          Uri.parse('$_baseUrl/auth/send-otp'),
+          Uri.parse('$baseUrl/auth/send-otp'),
           headers: {'Content-Type': 'application/json'},
           body: json.encode({ 
             "phone": phoneNumber
